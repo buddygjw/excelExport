@@ -1,11 +1,14 @@
 package me.vivia.export;
 
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+
+import javax.servlet.http.HttpServletResponse;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.reflect.FieldUtils;
@@ -37,6 +40,36 @@ public class ExcelExportService {
 
 	@Autowired
 	private MessageSource messageSource;
+
+	/**
+	 * 将值以数值方式填入单元格
+	 * 
+	 * @param row
+	 * @param index
+	 * @param obj
+	 */
+	private void fillCellAsNumber(Row row, int index, Object obj) {
+		if (obj == null) {
+			row.createCell(index).setCellValue("");
+		} else {
+			row.createCell(index).setCellValue(new Double(obj.toString()));
+		}
+	}
+
+	/**
+	 * 将值以日期方式填入单元格
+	 * 
+	 * @param row
+	 * @param index
+	 * @param obj
+	 * @param cellStyle
+	 */
+	private void fillCellAsDate(Row row, int index, Object obj,
+			CellStyle cellStyle) {
+		Cell cell = row.createCell(index);
+		cell.setCellValue((Date) obj);
+		cell.setCellStyle(cellStyle);
+	}
 
 	/**
 	 * 填充sheet数据
@@ -74,9 +107,8 @@ public class ExcelExportService {
 					if (TypeUtils.isAssignable(field.getType(), Number.class)) {
 						// 数字类型字段
 						try {
-							row.createCell(columnIndex++).setCellValue(
-									new Double(FieldUtils.readField(field, o,
-											true).toString()));
+							fillCellAsNumber(row, columnIndex++,
+									FieldUtils.readField(field, o, true));
 						} catch (IllegalAccessException e) {
 							logger.error(e.getMessage(), e);
 						}
@@ -84,10 +116,34 @@ public class ExcelExportService {
 							Date.class)) {
 						// 日期类型字段
 						try {
-							Cell cell = row.createCell(columnIndex++);
-							cell.setCellValue((Date) FieldUtils.readField(
-									field, o, true));
-							cell.setCellStyle(cellStyle);
+							fillCellAsDate(row, columnIndex++,
+									FieldUtils.readField(field, o, true),
+									cellStyle);
+						} catch (IllegalAccessException e) {
+							logger.error(e.getMessage(), e);
+						}
+					} else if (TypeUtils.isArrayType(field.getType())) {
+						// 数组类型
+						try {
+							Object[] array = (Object[]) FieldUtils.readField(
+									field, o, true);
+							if (TypeUtils.isAssignable(field.getType()
+									.getComponentType(), Number.class)) {
+								for (Object obj : array) {
+									fillCellAsNumber(row, columnIndex++, obj);
+								}
+							} else if (TypeUtils.isAssignable(field.getType()
+									.getComponentType(), Date.class)) {
+								for (Object obj : array) {
+									fillCellAsDate(row, columnIndex++, obj,
+											cellStyle);
+								}
+							} else {
+								for (Object obj : array) {
+									row.createCell(columnIndex++).setCellValue(
+											obj.toString());
+								}
+							}
 						} catch (IllegalAccessException e) {
 							logger.error(e.getMessage(), e);
 						}
@@ -177,6 +233,32 @@ public class ExcelExportService {
 		fillSheetWithData(sheet, className, fields, cellStyle, list, locale);
 
 		return wb;
+	}
+
+	/**
+	 * 导出excel并输出到客户端
+	 * 
+	 * @param response
+	 * @param clazz
+	 *            要导出的数据Bean的类型
+	 * @param list
+	 *            要导出的数据
+	 * @param properties
+	 *            要导出的数据Bean的字段，可以用来排序或指定导出某些属性，null时将导出所有属性
+	 * @param dateformat
+	 *            Date类型输出格式(excel格式)，默认为yyyy-mm-dd,完全格式为yyyy-mm-dd HH:MM:SS
+	 * @param locale
+	 *            当前Locale，用于列名(属性名)的国际化输出
+	 * @throws IOException
+	 */
+	public void executeDownload(HttpServletResponse response, Class clazz,
+			List list, String[] properties, String dateformat, Locale locale)
+			throws IOException {
+		response.setContentType("application/vnd.ms-excel");
+		response.addHeader("Content-Disposition",
+				"attachment;filename=workbook.xls");
+		export(clazz, list, properties, dateformat, locale).write(
+				response.getOutputStream());
 	}
 
 	/**

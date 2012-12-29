@@ -10,8 +10,10 @@ import java.util.Map;
 
 import me.vivia.bean.ActiveStat;
 import me.vivia.bean.OnlineStat;
+import me.vivia.bean.RetentionStat;
 import me.vivia.service.ActiveStatService;
 import me.vivia.service.OnlineStatService;
+import me.vivia.service.StatService;
 
 import org.apache.commons.lang3.time.DateUtils;
 import org.apache.poi.hssf.usermodel.HSSFWorkbook;
@@ -31,20 +33,14 @@ public class ExcelExportServiceTest {
 	@Autowired
 	private OnlineStatService onlineStatService;
 	@Autowired
+	private StatService statService;
+	@Autowired
 	private ExcelExportService excelExportService;
 
-	@Test
-	public void testExportExcel() throws ParseException {
-		// 默认参数导出
-		Workbook wb = excelExportService.export(ActiveStat.class,
-				activeStatService.getActiveStat(
-						DateUtils.parseDate("2012-12-01", "yyyy-MM-dd"),
-						DateUtils.parseDate("2012-12-28", "yyyy-MM-dd")), null,
-				null, null);
-
+	private void writeToFile(Workbook wb, String fileName) {
 		FileOutputStream fos = null;
 		try {
-			fos = new FileOutputStream("workbook.xls");
+			fos = new FileOutputStream(fileName);
 			wb.write(fos);
 		} catch (FileNotFoundException e) {
 			e.printStackTrace();
@@ -59,6 +55,17 @@ public class ExcelExportServiceTest {
 				}
 			}
 		}
+	}
+
+	@Test
+	public void testExportExcel() throws ParseException {
+		// 默认参数导出
+		Workbook wb = excelExportService.export(ActiveStat.class,
+				activeStatService.getActiveStat(
+						DateUtils.parseDate("2012-12-01", "yyyy-MM-dd"),
+						DateUtils.parseDate("2012-12-28", "yyyy-MM-dd")), null,
+				null, null);
+		writeToFile(wb, "workbook.xls");
 	}
 
 	@Test
@@ -71,23 +78,7 @@ public class ExcelExportServiceTest {
 				new String[] { "statDate", "_1dayActiveCount",
 						"_7dayActiveCount" }, null, null);
 
-		FileOutputStream fos = null;
-		try {
-			fos = new FileOutputStream("workbook1.xls");
-			wb.write(fos);
-		} catch (FileNotFoundException e) {
-			e.printStackTrace();
-		} catch (IOException e) {
-			e.printStackTrace();
-		} finally {
-			if (fos != null) {
-				try {
-					fos.close();
-				} catch (IOException e) {
-					e.printStackTrace();
-				}
-			}
-		}
+		writeToFile(wb, "workbook1.xls");
 	}
 
 	@Test
@@ -98,24 +89,7 @@ public class ExcelExportServiceTest {
 				onlineStatService.getLast24HoursOnlineStat(), new String[] {
 						"statTime", "onlineCount" }, "yyyy-mm-dd HH:MM:SS",
 				null);
-
-		FileOutputStream fos = null;
-		try {
-			fos = new FileOutputStream("workbook3.xls");
-			wb.write(fos);
-		} catch (FileNotFoundException e) {
-			e.printStackTrace();
-		} catch (IOException e) {
-			e.printStackTrace();
-		} finally {
-			if (fos != null) {
-				try {
-					fos.close();
-				} catch (IOException e) {
-					e.printStackTrace();
-				}
-			}
-		}
+		writeToFile(wb, "workbook2.xls");
 	}
 
 	@Test
@@ -124,29 +98,26 @@ public class ExcelExportServiceTest {
 		Workbook wb = new HSSFWorkbook();
 		Map<String, List<OnlineStat>> map = onlineStatService
 				.getOnlineStatByServer(
-						DateUtils.parseDate("2012-12-26", "yyyy-MM-dd"),
+						DateUtils.parseDate("2012-12-01", "yyyy-MM-dd"),
 						DateUtils.parseDate("2012-12-28", "yyyy-MM-dd"));
 		for (Map.Entry<String, List<OnlineStat>> entry : map.entrySet()) {
 			excelExportService.appendDataToSheet(wb, entry.getKey(),
-					OnlineStat.class, entry.getValue(), null,
-					"yyyy-mm-dd HH:MM:SS", null);
+					OnlineStat.class, entry.getValue(), new String[] {
+							"statTime", "onlineCount" }, "yyyy-mm-dd HH:MM:SS",
+					null);
 		}
-		FileOutputStream fos = null;
-		try {
-			fos = new FileOutputStream("workbook4.xls");
-			wb.write(fos);
-		} catch (FileNotFoundException e) {
-			e.printStackTrace();
-		} catch (IOException e) {
-			e.printStackTrace();
-		} finally {
-			if (fos != null) {
-				try {
-					fos.close();
-				} catch (IOException e) {
-					e.printStackTrace();
-				}
-			}
-		}
+		writeToFile(wb, "workbook3.xls");
+	}
+
+	@Test
+	public void testExportExcelWithArrayProperty() throws ParseException {
+		// 导出带数组属性的
+		Workbook wb = excelExportService
+				.export(RetentionStat.class,
+						Arrays.asList(new RetentionStat[] { statService
+								.getChannelRetentionStat(0, DateUtils
+										.parseDate("2012-12-01", "yyyy-MM-dd")) }),
+						null, "yyyy-mm-dd", null);
+		writeToFile(wb, "workbook4.xls");
 	}
 }
