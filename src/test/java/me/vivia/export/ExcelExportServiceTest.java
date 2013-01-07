@@ -6,6 +6,8 @@ import java.io.IOException;
 import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Calendar;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,9 +18,6 @@ import me.vivia.bean.ChannelStat;
 import me.vivia.bean.OnlineStat;
 import me.vivia.bean.RetentionStat;
 import me.vivia.constant.StatType;
-import me.vivia.service.ActiveStatService;
-import me.vivia.service.OnlineStatService;
-import me.vivia.service.StatService;
 
 import org.apache.commons.lang3.time.DateUtils;
 import org.apache.poi.hssf.usermodel.HSSFWorkbook;
@@ -34,15 +33,17 @@ import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
 @ContextConfiguration(locations = "classpath:applicationContext-test.xml")
 public class ExcelExportServiceTest {
 
-	@Autowired
-	private ActiveStatService activeStatService;
-	@Autowired
-	private OnlineStatService onlineStatService;
-	@Autowired
-	private StatService statService;
+	Random random = new Random();
+
 	@Autowired
 	private ExcelExportService excelExportService;
 
+	/**
+	 * 将workbook写到文件中
+	 * 
+	 * @param wb
+	 * @param fileName
+	 */
 	private void writeToFile(Workbook wb, String fileName) {
 		FileOutputStream fos = null;
 		try {
@@ -63,14 +64,90 @@ public class ExcelExportServiceTest {
 		}
 	}
 
+	/**
+	 * 获取模拟活跃统计数据
+	 * 
+	 * @return
+	 * @throws ParseException
+	 */
+	private List<ActiveStat> getActiveStatDate() throws ParseException {
+		List<ActiveStat> list = new ArrayList<ActiveStat>();
+		Date from = DateUtils.parseDate("2012-12-01", "yyyy-MM-dd");
+		Date to = DateUtils.parseDate("2012-12-28", "yyyy-MM-dd");
+		int index = 1;
+		while (from.getTime() < to.getTime()) {
+			ActiveStat as = new ActiveStat();
+			as.setId(index++);
+			as.set1dayActiveCount(random.nextInt(1000));
+			as.set3dayActiveCount(random.nextInt(1000));
+			as.set7dayActiveCount(random.nextInt(1000));
+			as.set30dayActiveCount(random.nextInt(1000));
+			as.set1dayValidActiveCount(random.nextInt(1000));
+			as.set3dayValidActiveCount(random.nextInt(1000));
+			as.set7dayValidActiveCount(random.nextInt(1000));
+			as.set30dayValidActiveCount(random.nextInt(1000));
+			as.setStatDate(from);
+			from = DateUtils.addDays(from, 1);
+			list.add(as);
+		}
+		return list;
+	}
+
+	/**
+	 * 获取模拟在线量统计数据
+	 * 
+	 * @return
+	 */
+	private List<OnlineStat> getLast24HoursOnlineStat() {
+		Calendar c = Calendar.getInstance();
+		Date to = DateUtils.truncate(DateUtils.setMinutes(c.getTime(),
+				c.get(Calendar.MINUTE) / 10 * 10), Calendar.MINUTE);
+		Date from = DateUtils.addHours(to, -24);
+		List<OnlineStat> list = new ArrayList<OnlineStat>();
+		while (from.getTime() < to.getTime()) {
+			OnlineStat os = new OnlineStat();
+			os.setStatTime(from);
+			os.setOnlineCount(random.nextInt(10000));
+			list.add(os);
+			from = DateUtils.addMinutes(from, 10);
+		}
+		return list;
+	}
+
+	/**
+	 * 获取分服在线量统计数据
+	 * 
+	 * @param from
+	 * @param to
+	 * @return
+	 */
+	private Map<String, List<OnlineStat>> getOnlineStatByServer(Date from,
+			Date to) {
+		Map<String, List<OnlineStat>> map = new HashMap<String, List<OnlineStat>>();
+		String servers[] = new String[] { "A服", "B服" };
+		for (int i = 0; i < servers.length; i++) {
+			int index = 1;
+			String name = servers[i];
+			List<OnlineStat> list = new ArrayList<OnlineStat>();
+			while (index % 100 != 0) {
+				OnlineStat os = new OnlineStat();
+				os.setId(index++);
+				os.setServerId(i);
+				os.setStatTime(from);
+				os.setOnlineCount(random.nextInt(10000));
+				list.add(os);
+				from = DateUtils.addMinutes(from, 10);
+			}
+			map.put(name, list);
+		}
+		return map;
+	}
+
 	@Test
 	public void testExportExcel() throws ParseException {
 		// 默认参数导出
 		Workbook wb = excelExportService.export(ActiveStat.class,
-				activeStatService.getActiveStat(
-						DateUtils.parseDate("2012-12-01", "yyyy-MM-dd"),
-						DateUtils.parseDate("2012-12-28", "yyyy-MM-dd")), null,
-				null, null, null, null);
+				getActiveStatDate(), null, null, null, null, null);
 		writeToFile(wb, "workbook.xls");
 	}
 
@@ -78,11 +155,9 @@ public class ExcelExportServiceTest {
 	public void testExportExcelWithProperties() throws ParseException {
 		// 指定参数导出
 		Workbook wb = excelExportService.export(ActiveStat.class,
-				activeStatService.getActiveStat(
-						DateUtils.parseDate("2012-12-01", "yyyy-MM-dd"),
-						DateUtils.parseDate("2012-12-28", "yyyy-MM-dd")),
-				new String[] { "statDate", "_1dayActiveCount",
-						"_7dayActiveCount" }, null, null, null, null);
+				getActiveStatDate(), new String[] { "statDate",
+						"_1dayActiveCount", "_7dayActiveCount" }, null, null,
+				null, null);
 
 		writeToFile(wb, "workbook1.xls");
 	}
@@ -92,9 +167,9 @@ public class ExcelExportServiceTest {
 			throws ParseException {
 		// 导出列名未完全国际化的
 		Workbook wb = excelExportService.export(OnlineStat.class,
-				onlineStatService.getLast24HoursOnlineStat(), new String[] {
-						"statTime", "onlineCount" }, null, null,
-				"yyyy-mm-dd HH:MM:SS", null);
+				getLast24HoursOnlineStat(), new String[] { "statTime",
+						"onlineCount" }, null, null, "yyyy-mm-dd HH:MM:SS",
+				null);
 		writeToFile(wb, "workbook2.xls");
 	}
 
@@ -102,10 +177,9 @@ public class ExcelExportServiceTest {
 	public void testExportExcelWithMultiSheet() throws ParseException {
 		// 导出多个sheet
 		Workbook wb = new HSSFWorkbook();
-		Map<String, List<OnlineStat>> map = onlineStatService
-				.getOnlineStatByServer(
-						DateUtils.parseDate("2012-12-01", "yyyy-MM-dd"),
-						DateUtils.parseDate("2012-12-28", "yyyy-MM-dd"));
+		Map<String, List<OnlineStat>> map = getOnlineStatByServer(
+				DateUtils.parseDate("2012-12-01", "yyyy-MM-dd"),
+				DateUtils.parseDate("2012-12-28", "yyyy-MM-dd"));
 		for (Map.Entry<String, List<OnlineStat>> entry : map.entrySet()) {
 			excelExportService.appendDataToSheet(wb, entry.getKey(),
 					OnlineStat.class, entry.getValue(), new String[] {
@@ -118,12 +192,21 @@ public class ExcelExportServiceTest {
 	@Test
 	public void testExportExcelWithArrayProperty() throws ParseException {
 		// 导出带数组属性的
-		Workbook wb = excelExportService
-				.export(RetentionStat.class,
-						Arrays.asList(new RetentionStat[] { statService
-								.getChannelRetentionStat(0, DateUtils
-										.parseDate("2012-12-01", "yyyy-MM-dd")) }),
-						null, null, null, "yyyy-mm-dd", null);
+		Date date = DateUtils.parseDate("2012-12-01", "yyyy-MM-dd");
+		RetentionStat rs = new RetentionStat();
+		rs.setStatDate(date);
+		rs.setRegisterCount(random.nextInt(10000));
+		Date now = new Date();
+		for (int i = 0; i < 10; i++) {
+			Date theDate = DateUtils.addDays(date, i < 6 ? i + 1
+					: (i - 6) * 10 - 1);
+			if (DateUtils.isSameDay(now, theDate))
+				break;
+			rs.getRetentionCount()[i] = random.nextInt(2000);
+		}
+		Workbook wb = excelExportService.export(RetentionStat.class,
+				Arrays.asList(new RetentionStat[] { rs }), null, null, null,
+				"yyyy-mm-dd", null);
 		writeToFile(wb, "workbook4.xls");
 	}
 
