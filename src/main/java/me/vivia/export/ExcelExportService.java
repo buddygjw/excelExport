@@ -5,8 +5,10 @@ import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 import javax.servlet.http.HttpServletResponse;
 
@@ -25,6 +27,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.MessageSource;
 import org.springframework.stereotype.Service;
+
+import de.congrace.exp4j.ExpressionBuilder;
+import de.congrace.exp4j.UnknownFunctionException;
+import de.congrace.exp4j.UnparsableExpressionException;
 
 /**
  * Excel导出服务
@@ -48,11 +54,35 @@ public class ExcelExportService {
 	 * @param index
 	 * @param obj
 	 */
-	private void fillCellAsNumber(Row row, int index, Object obj) {
+	private void fillCellAsNumber(Row row, int index, Object obj,
+			Class constantClass, String formular, Locale locale) {
 		if (obj == null) {
 			row.createCell(index).setCellValue("");
 		} else {
-			row.createCell(index).setCellValue(new Double(obj.toString()));
+			if (constantClass != null) {
+				String className = Character.toLowerCase(constantClass
+						.getSimpleName().charAt(0))
+						+ constantClass.getSimpleName().substring(1);
+				row.createCell(index).setCellValue(
+						messageSource.getMessage(className + "." + obj, null,
+								obj.toString(), locale));
+			} else if (StringUtils.isNotBlank(formular)) {
+				try {
+					row.createCell(index).setCellValue(
+							new ExpressionBuilder(formular)
+									.withVariable("value",
+											new Double(obj.toString())).build()
+									.calculate());
+				} catch (NumberFormatException e) {
+					e.printStackTrace();
+				} catch (UnknownFunctionException e) {
+					e.printStackTrace();
+				} catch (UnparsableExpressionException e) {
+					e.printStackTrace();
+				}
+			} else {
+				row.createCell(index).setCellValue(new Double(obj.toString()));
+			}
 		}
 	}
 
@@ -83,9 +113,16 @@ public class ExcelExportService {
 	 */
 	private void fillSheetWithData(Sheet sheet, String className,
 			List<Field> fields, CellStyle cellStyle, List<Object> list,
+			Map<String, Class> escapeMap, Map<String, String> formularMap,
 			Locale locale) {
 		if (locale == null) {
 			locale = Locale.CHINA;
+		}
+		if (escapeMap == null) {
+			escapeMap = new HashMap<String, Class>();
+		}
+		if (formularMap == null) {
+			formularMap = new HashMap<String, String>();
 		}
 
 		int rowIndex = 0;
@@ -94,9 +131,10 @@ public class ExcelExportService {
 		int columnIndex = 0;
 		// 输出列名
 		for (Field field : fields) {
-			row.createCell(columnIndex++).setCellValue(
-					messageSource.getMessage(className + "." + field.getName(),
-							null, locale));
+			Cell cell = row.createCell(columnIndex++);
+			cell.setCellValue(messageSource.getMessage(
+					className + "." + field.getName(), null, locale));
+			cell.getCellStyle().setAlignment(CellStyle.ALIGN_CENTER);
 		}
 		// 输出数据
 		if (list != null && list.size() > 0) {
@@ -104,11 +142,15 @@ public class ExcelExportService {
 				columnIndex = 0;
 				row = sheet.createRow(rowIndex++);
 				for (Field field : fields) {
+					String fieldName = Character.toLowerCase(field.getName()
+							.charAt(0)) + field.getName().substring(1);
 					if (TypeUtils.isAssignable(field.getType(), Number.class)) {
 						// 数字类型字段
 						try {
 							fillCellAsNumber(row, columnIndex++,
-									FieldUtils.readField(field, o, true));
+									FieldUtils.readField(field, o, true),
+									escapeMap.get(fieldName),
+									formularMap.get(fieldName), locale);
 						} catch (IllegalAccessException e) {
 							logger.error(e.getMessage(), e);
 						}
@@ -130,7 +172,9 @@ public class ExcelExportService {
 							if (TypeUtils.isAssignable(field.getType()
 									.getComponentType(), Number.class)) {
 								for (Object obj : array) {
-									fillCellAsNumber(row, columnIndex++, obj);
+									fillCellAsNumber(row, columnIndex++, obj,
+											escapeMap.get(fieldName),
+											formularMap.get(fieldName), locale);
 								}
 							} else if (TypeUtils.isAssignable(field.getType()
 									.getComponentType(), Date.class)) {
@@ -184,14 +228,21 @@ public class ExcelExportService {
 					fields.add(field);
 				}
 			}
-			// 如果指定的属性都不存在，也把所以属性输出
+			// 如果指定的属性都不存在，也把所有属性输出
 			if (fields.isEmpty()) {
 				logger.error("xxxxxx 指定属性{}在{}不存在，导出所有属性", properties,
 						clazz.getName());
 				fields = Arrays.asList(clazz.getDeclaredFields());
 			}
 		}
-		return fields;
+		// 去掉serialVersionUID属性
+		List<Field> theFields = new ArrayList<Field>();
+		for (Field field : fields) {
+			if (!field.getName().equals("serialVersionUID")) {
+				theFields.add(field);
+			}
+		}
+		return theFields;
 	}
 
 	/**
@@ -203,6 +254,10 @@ public class ExcelExportService {
 	 *            要导出的数据
 	 * @param properties
 	 *            要导出的数据Bean的字段，可以用来排序或指定导出某些属性，null时将导出所有属性
+	 * @param escapeMap
+	 *            转义map,key为属性名，value为转义常量类
+	 * @param formularMap
+	 *            计算公式map，key为属性名，value为计算表达式(属性值占位符为value)
 	 * @param dateformat
 	 *            Date类型输出格式(excel格式)，默认为yyyy-mm-dd,完全格式为yyyy-mm-dd HH:MM:SS
 	 * @param locale
@@ -210,6 +265,7 @@ public class ExcelExportService {
 	 * @return
 	 */
 	public Workbook export(Class clazz, List list, String[] properties,
+			Map<String, Class> escapeMap, Map<String, String> formularMap,
 			String dateformat, Locale locale) {
 		if (dateformat == null) {
 			dateformat = "yyyy-mm-dd";
@@ -230,7 +286,8 @@ public class ExcelExportService {
 				dateformat));
 
 		// 填充数据
-		fillSheetWithData(sheet, className, fields, cellStyle, list, locale);
+		fillSheetWithData(sheet, className, fields, cellStyle, list, escapeMap,
+				formularMap, locale);
 
 		return wb;
 	}
@@ -245,6 +302,10 @@ public class ExcelExportService {
 	 *            要导出的数据
 	 * @param properties
 	 *            要导出的数据Bean的字段，可以用来排序或指定导出某些属性，null时将导出所有属性
+	 * @param escapeMap
+	 *            转义map,key为属性名，value为转义常量类
+	 * @param formularMap
+	 *            计算公式map，key为属性名，value为计算表达式(属性值占位符为value)
 	 * @param dateformat
 	 *            Date类型输出格式(excel格式)，默认为yyyy-mm-dd,完全格式为yyyy-mm-dd HH:MM:SS
 	 * @param locale
@@ -252,13 +313,14 @@ public class ExcelExportService {
 	 * @throws IOException
 	 */
 	public void executeDownload(HttpServletResponse response, Class clazz,
-			List list, String[] properties, String dateformat, Locale locale)
+			List list, String[] properties, Map<String, Class> escapeMap,
+			Map<String, String> formularMap, String dateformat, Locale locale)
 			throws IOException {
 		response.setContentType("application/vnd.ms-excel");
 		response.addHeader("Content-Disposition",
 				"attachment;filename=workbook.xls");
-		export(clazz, list, properties, dateformat, locale).write(
-				response.getOutputStream());
+		export(clazz, list, properties, escapeMap, formularMap, dateformat,
+				locale).write(response.getOutputStream());
 	}
 
 	/**
@@ -274,13 +336,18 @@ public class ExcelExportService {
 	 *            要导出的数据
 	 * @param properties
 	 *            要导出的数据Bean的字段，可以用来排序或指定导出某些属性，null时将导出所有属性
+	 * @param escapeMap
+	 *            转义map,key为属性名，value为转义常量类
+	 * @param formularMap
+	 *            计算公式map，key为属性名，value为计算表达式(属性值占位符为value)
 	 * @param dateformat
 	 *            Date类型输出格式(excel格式)，默认为yyyy-mm-dd,完全格式为yyyy-mm-dd HH:MM:SS
 	 * @param locale
 	 *            当前Locale，用于列名(属性名)的国际化输出
 	 */
 	public void appendDataToSheet(Workbook wb, String sheetTitle, Class clazz,
-			List list, String[] properties, String dateformat, Locale locale) {
+			List list, String[] properties, Map<String, Class> escapeMap,
+			Map<String, String> formularMap, String dateformat, Locale locale) {
 		if (dateformat == null) {
 			dateformat = "yyyy-mm-dd";
 		}
@@ -300,6 +367,7 @@ public class ExcelExportService {
 				dateformat));
 
 		// 填充数据
-		fillSheetWithData(sheet, className, fields, cellStyle, list, locale);
+		fillSheetWithData(sheet, className, fields, cellStyle, list, escapeMap,
+				formularMap, locale);
 	}
 }
