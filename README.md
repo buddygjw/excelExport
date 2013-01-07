@@ -6,8 +6,6 @@ a general excel export module.
 quick demo
 ---
 
-<code>
-
 	...
 	int length = 10000;
 	List<ChannelStat> list = new ArrayList<ChannelStat>(length);
@@ -34,8 +32,6 @@ quick demo
 			map, formularMap, "yyyy-mm-dd", null);
 	writeToFile(wb, "workbook7.xls");
 	...
-
-</code>
 
 export result:
 
