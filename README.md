@@ -60,4 +60,4 @@ messageSource配置：
 
 export result:
 
-![](http://d.pr/i/p6pZ+)
+![](http://d.pr/i/oUzi+)
