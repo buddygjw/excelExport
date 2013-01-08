@@ -56,7 +56,7 @@ quick demo
 
 messageSource配置：
 
-![](http://d.pr/i/2WWW+)
+![](http://d.pr/i/bRJo+)
 
 export result:
 
