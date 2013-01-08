@@ -166,16 +166,19 @@ public class ExcelExportServiceTest {
 	public void testExportExcelWithPropertiesWithoutI18N()
 			throws ParseException {
 		// 导出列名未完全国际化的
+		Map<String, String> formatMap = new HashMap<String, String>();
+		formatMap.put("statTime", "yyyy-mm-dd HH:MM:SS");
 		Workbook wb = excelExportService.export(OnlineStat.class,
 				getLast24HoursOnlineStat(), new String[] { "statTime",
-						"onlineCount" }, null, null, "yyyy-mm-dd HH:MM:SS",
-				null);
+						"onlineCount" }, null, null, formatMap, null);
 		writeToFile(wb, "workbook2.xls");
 	}
 
 	@Test
 	public void testExportExcelWithMultiSheet() throws ParseException {
 		// 导出多个sheet
+		Map<String, String> formatMap = new HashMap<String, String>();
+		formatMap.put("statTime", "yyyy-mm-dd HH:MM:SS");
 		Workbook wb = new HSSFWorkbook();
 		Map<String, List<OnlineStat>> map = getOnlineStatByServer(
 				DateUtils.parseDate("2012-12-01", "yyyy-MM-dd"),
@@ -183,8 +186,8 @@ public class ExcelExportServiceTest {
 		for (Map.Entry<String, List<OnlineStat>> entry : map.entrySet()) {
 			excelExportService.appendDataToSheet(wb, entry.getKey(),
 					OnlineStat.class, entry.getValue(), new String[] {
-							"statTime", "onlineCount" }, null, null,
-					"yyyy-mm-dd HH:MM:SS", null);
+							"statTime", "onlineCount" }, null, null, formatMap,
+					null);
 		}
 		writeToFile(wb, "workbook3.xls");
 	}
@@ -205,8 +208,9 @@ public class ExcelExportServiceTest {
 			rs.getRetentionCount()[i] = random.nextInt(2000);
 		}
 		Workbook wb = excelExportService.export(RetentionStat.class,
-				Arrays.asList(new RetentionStat[] { rs }), null, null, null,
-				"yyyy-mm-dd", null);
+				Arrays.asList(new RetentionStat[] { rs }), new String[] {
+						"statDate", "registerCount", "retentionCount" }, null,
+				null, null, null);
 		writeToFile(wb, "workbook4.xls");
 	}
 
@@ -236,7 +240,7 @@ public class ExcelExportServiceTest {
 		Map<String, Class> map = new HashMap<String, Class>();
 		map.put("statType", StatType.class);
 		Workbook wb = excelExportService.export(ChannelStat.class, list, null,
-				map, null, "yyyy-mm-dd", null);
+				map, null, null, null);
 		writeToFile(wb, "workbook5.xls");
 	}
 
@@ -266,39 +270,61 @@ public class ExcelExportServiceTest {
 		Map<String, Class> map = new HashMap<String, Class>();
 		map.put("statType", StatType.class);
 		Workbook wb = excelExportService.export(ChannelStat.class, list, null,
-				map, null, "yyyy-mm-dd", null);
+				map, null, null, null);
 		writeToFile(wb, "workbook6.xls");
 		System.out.println("耗时：" + (System.currentTimeMillis() - start) + "毫秒");
 	}
 
 	@Test
 	public void testExportExcelWithPropertyFormular() throws ParseException {
-		// 导出带计算表达式
+		// 导出带计算表达式和格式化表达式
 		long start = System.currentTimeMillis();
 		int length = 10000;
+		int i = 0;
+		int baseTotalCount = 2000;
+		int baseValidCount = 1200;
 		List<ChannelStat> list = new ArrayList<ChannelStat>(length);
-		while (length > 0) {
+		while (i < length) {
+			baseTotalCount += random.nextInt(100);
+			baseValidCount += random.nextInt(70);
 			ChannelStat cs = new ChannelStat();
-			cs.setId(4);
-			cs.setStatDate(DateUtils.parseDate("2012-12-01", "yyyy-MM-dd"));
+			cs.setId(random.nextInt(length));
+			cs.setStatDate(DateUtils.addDays(
+					DateUtils.parseDate("2012-12-01", "yyyy-MM-dd"), i));
 			cs.setChannel(1);
-			cs.setEmptyCount(5);
-			cs.setPayAmount(1L * new Random().nextInt(100000));
-			cs.setPayCount(70);
-			cs.setRegisterCount(500);
-			cs.setStatType(StatType.DAILY_STAT);
-			cs.setTotalCount(10330);
-			cs.setValidCount(430);
+			cs.setRegisterCount(random.nextInt(1000));
+			cs.setEmptyCount(random.nextInt(cs.getRegisterCount() + 1));
+			cs.setPayAmount(1L * (new Random().nextInt(10000000) + 1));// 单位为分，转出到excel时需要以元为单位输出
+			cs.setPayCount(random.nextInt(200) + 1);
+			cs.setStatType(StatType.DAILY_STAT); // 根据值转义：0-日统计 1-周统计 2-月统计
+			cs.setTotalCount(baseTotalCount);
+			cs.setValidCount(baseValidCount);
 			list.add(cs);
-			length--;
+			i++;
 		}
-		Map<String, Class> map = new HashMap<String, Class>();
-		map.put("statType", StatType.class);
-		Map<String, String> formularMap = new HashMap<String, String>();
-		formularMap.put("payAmount", "value/100.0");
-		Workbook wb = excelExportService.export(ChannelStat.class, list, null,
-				map, formularMap, "yyyy-mm-dd", null);
+		Map<String, Class> map = new HashMap<String, Class>();// 常量类转义，需要spring的messageSource
+		map.put("statType", StatType.class); // statType字段值根据StatType.class的值进行转义
+		Map<String, String> formularMap = new HashMap<String, String>();// 属性计算公式map
+		formularMap.put("payAmount", "payAmount/100.0"); // payAmount字段值除以100.0后(即把分转为元)再输出
+		formularMap.put("payARPU", "payAmount/payCount"); // 公式计算
+		formularMap.put("registerARPU", "payAmount/registerCount"); // 公式计算
+		formularMap.put("validARPU", "payAmount/validCount"); // 公式计算
+		formularMap.put("validRate", "validCount/totalCount"); // 公式计算
+		Map<String, String> formatMap = new HashMap<String, String>();
+		formatMap.put("payAmount", "￥##,###.00"); // 千分位分隔
+		formatMap.put("payARPU", "￥##,###.00"); // 千分位分隔
+		formatMap.put("registerARPU", "￥##,###.00"); // 千分位分隔
+		formatMap.put("validARPU", "￥##,###.00"); // 千分位分隔
+		formatMap.put("validRate", "0.00%"); // 显示为百分比
+		formatMap.put("registerCount", "[red][>=900];[blue][<100];[black]"); // 颜色区分:>=900红色，100以内为蓝色，其他为黑色
+		Workbook wb = excelExportService.export(ChannelStat.class, list,
+				new String[] { "statDate", "statType", "totalCount",
+						"registerCount", "validCount", "validRate",
+						"emptyCount", "payCount", "payAmount", "payARPU",
+						"registerARPU", "validARPU" }, map, formularMap,
+				formatMap, null);
 		writeToFile(wb, "workbook7.xls");
 		System.out.println("耗时：" + (System.currentTimeMillis() - start) + "毫秒");
 	}
+
 }
